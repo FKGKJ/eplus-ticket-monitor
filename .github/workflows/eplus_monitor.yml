@@ -1,0 +1,27 @@
+name: E+ Ticket Monitor
+
+on:
+  schedule:
+    # 每 5 分鐘在 GitHub 雲端自動執行一次
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    # 允許在 GitHub 網頁上手動點擊 "Run workflow" 立即測試（手動執行時會發送一則測試成功通知到 Discord）
+
+jobs:
+  check-ticket:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check E+ Ticket Status
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python monitor.py
