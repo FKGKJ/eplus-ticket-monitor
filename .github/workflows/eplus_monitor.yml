@@ -23,5 +23,7 @@ jobs:
       - name: Check E+ Ticket Status
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_LAWSON: ${{ secrets.DISCORD_WEBHOOK_LAWSON }}
+          DISCORD_WEBHOOK_PIA: ${{ secrets.DISCORD_WEBHOOK_PIA }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: python monitor.py

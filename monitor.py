@@ -10,74 +10,100 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 JST = timezone(timedelta(hours=8))
 
-DETAIL_URL = "https://eplus.jp/sf/detail/1682650001-P0030148P0030149P0030150P0030151P0030152P0030153P0030154P0030155P0030156P0030157P0030158P0030159P0030160P0030161P0030162P0030163P0030164?P1=0402&P59=1&P6=001&block=true"
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+# 售票網址設定
+EPLUS_DETAIL_URL = "https://eplus.jp/sf/detail/1682650001-P0030148P0030149P0030150P0030151P0030152P0030153P0030154P0030155P0030156P0030157P0030158P0030159P0030160P0030161P0030162P0030163P0030164?P1=0402&P59=1&P6=001&block=true"
+EPLUS_DIRECT_NIGHT_URL = "https://atom.eplus.jp/sys/main.jsp?prm=U=82:P2=168265:P5=0001:P3=0156:P21=002:P7=1:P6=001:P1=0402:P0=GGWC01:P55=//eplus.jp%2Fsf%2Fdetail%2F1682650001-P0030148P0030149P0030150P0030151P0030152P0030153P0030154P0030155P0030156P0030157P0030158P0030159P0030160P0030161P0030162P0030163P0030164%3FP1%2a0402%26P59%2a1%26P6%2a001%26block%2atrue"
+
+PIA_BUNDLE_URL = "https://t.pia.jp/pia/event/event.do?eventBundleCd=b2671107"
+PIA_DIRECT_URL = "https://t.pia.jp/pia/ticketInformation.do?eventCd=2636612&rlsCd=001"
+
+LAWSON_EVENT_URL = "https://l-tike.com/concert/mevent/?mid=469819"
+LAWSON_SEARCH_URL = "https://l-tike.com/search/?lcd=73366"
+LAWSON_DIRECT_ORDER_URL = "https://l-tike.com/order/?gLcode=73366&gPfKey=20260925000002302801%2C20260925000002302802&gEntryMthd=02&gScheduleNo=1&gCarrierCd=08&gPfName=%E5%A4%8F%E5%B7%9D%E6%A4%8E%E8%8F%9C&gBaseVenueCd=36261"
+
+# Discord Webhooks (僅從 GitHub Secrets 環境變數讀取，不寫死於程式碼中)
+WEBHOOK_EPLUS = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+WEBHOOK_LAWSON = (
+    os.environ.get("DISCORD_WEBHOOK_LAWSON", "").strip() or WEBHOOK_EPLUS
+)
+WEBHOOK_PIA = (
+    os.environ.get("DISCORD_WEBHOOK_PIA", "").strip() or WEBHOOK_EPLUS
+)
+
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 
-def fetch_html() -> str:
-    # Use curl for high compatibility with E+ TLS/headers
+def fetch_html(url: str, timeout_sec: int = 12) -> str:
     res = subprocess.run(
         [
             "curl",
             "-s",
             "-L",
+            "--compressed",
+            "-m",
+            str(timeout_sec),
             "-A",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-            DETAIL_URL,
+            UA,
+            "-H",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "-H",
+            "Accept-Language: ja,en-US;q=0.9,en;q=0.8,zh-TW;q=0.7",
+            "-H",
+            "Cache-Control: no-cache",
+            url,
         ],
         capture_output=True,
-        timeout=30,
+        timeout=timeout_sec + 3,
         check=False,
     )
     if res.returncode == 0 and res.stdout:
         return res.stdout.decode("utf-8", errors="replace")
 
     req = urllib.request.Request(
-        DETAIL_URL,
+        url,
         headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+            "User-Agent": UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-TW;q=0.7",
         },
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
 
-def send_discord(message: str) -> None:
-    if not WEBHOOK_URL:
-        print("⚠️ 未設定 DISCORD_WEBHOOK_URL 環境變數，跳過 Discord 推播。")
+def send_discord(webhook_url: str, username: str, message: str) -> None:
+    if not webhook_url:
+        print(f"⚠️ 未設定對應的 Discord Webhook Secret，跳過 [{username}] 推播。")
         return
-
     payload = json.dumps(
-        {
-            "username": "E+ 雲端監票小幫手",
-            "content": message,
-        },
+        {"username": username, "content": message},
         ensure_ascii=False,
     ).encode("utf-8")
 
     req = urllib.request.Request(
-        WEBHOOK_URL,
+        webhook_url,
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "User-Agent": UA,
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        print(f"✅ Discord 推播成功 (HTTP {resp.status})")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            print(f"✅ Discord 推播成功 [{username}] (HTTP {resp.status})")
+    except Exception as e:
+        print(f"⚠️ Discord 推播失敗 [{username}]: {e}")
 
 
-def check_once(send_test: bool = False) -> bool:
-    text = fetch_html()
+def check_eplus(now: str, send_test: bool = False) -> None:
+    text = fetch_html(EPLUS_DETAIL_URL)
     articles = re.findall(
         r'<article class="block-ticket-article.*?</article>', text, re.S
     )
 
-    now = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S (UTC+8)")
-    print(f"[{now}] E+ 雲端票務檢查結果 (エアトリ presents 毎日がクリスマス - 2026 夏川椎菜):")
-
-    available_lines = []
+    print(f"[{now}] [1/3] E+ 檢查結果 (2026 夏川椎菜):")
+    night_available_lines = []
     all_lines = []
 
     for art in articles:
@@ -105,37 +131,144 @@ def check_once(send_test: bool = False) -> bool:
         print(f"  - {line}")
         all_lines.append(line)
 
-        if "受付中" in status_str or "予定枚数終了" not in status_str:
-            available_lines.append(line)
+        is_night = ("19:30" in time_str) or (p21 == "002")
+        if is_night and ("受付中" in status_str or "予定枚数終了" not in status_str):
+            night_available_lines.append(line)
 
-    if available_lines:
-        joined_avail = "\n".join(f"• {l}" for l in available_lines)
+    if night_available_lines:
+        joined_avail = "\n".join(f"• {l}" for l in night_available_lines)
         joined_all = "\n".join(f"• {l}" for l in all_lines)
         msg = (
-            f"🚨 **【E+ 雲端釋票通知！】** @everyone\n"
-            f"您監控的 **2026 夏川椎菜** 場次狀態已變更（不再是予定枚数終了）！\n\n"
-            f"✅ **可購買場次**：\n{joined_avail}\n\n"
+            f"🚨 **【E+ 夜場 (19:30 LIVE) 釋票通知！】** @everyone\n"
+            f"您監控的 **2026 夏川椎菜 19:30 夜公演** 狀態已變更（不再是予定枚数終了）！\n\n"
+            f"✅ **可購買夜場**：\n{joined_avail}\n\n"
             f"📋 **當日兩場完整狀態**：\n{joined_all}\n"
             f"🕒 **檢查時間**：{now}\n"
-            f"🔗 **立刻前往售票頁面**：{DETAIL_URL}"
+            f"👉 **直接進 19:30 選張數頁面**：{EPLUS_DIRECT_NIGHT_URL}\n"
+            f"🔗 **E+ 列表頁**：{EPLUS_DETAIL_URL}"
         )
-        send_discord(msg)
-        return True
-
-    print("  ❌ 兩場公演 (16:30 與 19:30) 目前皆仍為「予定枚数終了」（已售完）。")
-    if send_test:
+        send_discord(WEBHOOK_EPLUS, "E+ 雲端監票小幫手", msg)
+    elif send_test:
         joined_all = "\n".join(f"• {l}" for l in all_lines)
         test_msg = (
-            f"☁️ **【GitHub Actions 雲端監票啟動測試成功！】**\n"
+            f"☁️ **【GitHub Actions 雲端監票啟動測試成功 (E+)！】**\n"
             f"🕒 **檢查時間**：{now}\n"
-            f"📋 **目前最新票況**：\n{joined_all}\n"
-            f"✨ 雲端排程已正常運作，現在**您可以安心將電腦關機**！只要任一場次釋出新票，雲端會立即在此頻道標記通知您。\n"
-            f"🔗 **售票頁面**：{DETAIL_URL}"
+            f"📋 **目前最新票況（已設定僅針對 19:30 夜場發警報）**：\n{joined_all}\n"
+            f"🔗 **售票頁面**：{EPLUS_DETAIL_URL}"
         )
-        send_discord(test_msg)
-    return False
+        send_discord(WEBHOOK_EPLUS, "E+ 雲端監票小幫手", test_msg)
+
+
+def check_pia(now: str, send_test: bool = False) -> None:
+    text = fetch_html(PIA_BUNDLE_URL)
+    match = re.search(
+        r'<p class="ticketSalesCard-2024__title">\s*一般発売\s*／\s*夏川椎菜\s*</p>.*?<p class="ticketSalesCard-2024__status[^>]*>(.*?)</p>',
+        text,
+        re.S,
+    )
+    status_str = (
+        re.sub(r"<[^>]+>", "", match.group(1)).strip() if match else "未知"
+    )
+    print(f"[{now}] [2/3] チケットぴあ (337-990) 檢查結果: 【{status_str}】")
+
+    is_available = (
+        status_str != "未知"
+        and "予定枚数終了" not in status_str
+        and "受付終了" not in status_str
+        and (
+            "販売期間中" in status_str
+            or "発売中" in status_str
+            or "残りわずか" in status_str
+            or "空席" in status_str
+        )
+    )
+
+    if is_available:
+        msg = (
+            f"🚨 **【チケットぴあ (Pia) 釋票通知！】** @everyone\n"
+            f"🎤 **夏川椎菜「毎日がクリスマス 2026」12/17(木) (Pコード: 337-990)**\n"
+            f"📊 **目前狀態**：【{status_str}】\n"
+            f"🕒 **檢查時間**：{now}\n"
+            f"👉 **立刻點此搶票 (夏川椎菜專頁)**：{PIA_DIRECT_URL}\n"
+            f"🔗 **Pia 總頁**：{PIA_BUNDLE_URL}"
+        )
+        send_discord(WEBHOOK_PIA, "Pia 雲端監票小幫手", msg)
+    elif send_test:
+        test_msg = (
+            f"☁️ **【GitHub Actions 雲端監票啟動測試成功 (チケットぴあ)！】**\n"
+            f"🕒 **檢查時間**：{now}\n"
+            f"📋 **目前最新票況 (Pコード: 337-990)**：【{status_str}】\n"
+            f"🔗 **直達搶票頁面**：{PIA_DIRECT_URL}"
+        )
+        send_discord(WEBHOOK_PIA, "Pia 雲端監票小幫手", test_msg)
+
+
+def check_lawson(now: str, send_test: bool = False) -> None:
+    status_str = "未知"
+    blocked_note = ""
+    try:
+        event_text = fetch_html(LAWSON_EVENT_URL, timeout_sec=10)
+        match = re.search(
+            r'<h3 class="lt-title-m[^>]*>[^<]*?夏川椎菜[^<]*?</h3>.*?<span class="lt-ticket-list-item__status[^>]*>(.*?)</span>',
+            event_text,
+            re.S,
+        )
+        if match:
+            status_str = re.sub(
+                r"^warning", "", re.sub(r"<[^>]+>", "", match.group(1))
+            ).strip()
+        else:
+            blocked_note = "（註：Lawson 防火牆可能阻擋 GitHub 美國雲端 IP）"
+    except Exception as e:
+        print(f"⚠️ Lawson 雲端連線受限: {e}")
+        blocked_note = "（註：Lawson 鎖日本海外機房 IP，雲端連線被擋）"
+
+    print(f"[{now}] [3/3] ローチケ (L: 73366) 檢查結果: 【{status_str}】 {blocked_note}")
+
+    is_available = (
+        status_str != "未知"
+        and "予定枚数終了" not in status_str
+        and "終了" not in status_str
+        and "発売中" in status_str
+    )
+
+    if is_available:
+        msg = (
+            f"🚨 **【ローチケ (Lawson) 釋票通知！】** @everyone\n"
+            f"🎤 **夏川椎菜「毎日がクリスマス 2026」12/17(木) (Lコード: 73366)**\n"
+            f"📊 **目前狀態**：【{status_str}】\n"
+            f"🕒 **檢查時間**：{now}\n"
+            f"👉 **立刻點此直達選票頁 (免選日期)**：\n{LAWSON_DIRECT_ORDER_URL}"
+        )
+        send_discord(WEBHOOK_LAWSON, "Lawson 雲端監票小幫手", msg)
+    elif send_test:
+        test_msg = (
+            f"☁️ **【GitHub Actions 雲端監票啟動測試成功 (ローチケ Lawson)！】**\n"
+            f"🕒 **檢查時間**：{now}\n"
+            f"📋 **目前最新票況 (Lコード: 73366)**：【{status_str}】{blocked_note}\n"
+            f"🔗 **直達搶票頁面 (免選日期)**：\n{LAWSON_DIRECT_ORDER_URL}"
+        )
+        send_discord(WEBHOOK_LAWSON, "Lawson 雲端監票小幫手", test_msg)
+
+
+def check_all(send_test: bool = False) -> None:
+    now = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S (UTC+8)")
+    try:
+        check_eplus(now, send_test=send_test)
+    except Exception as e:
+        print(f"⚠️ E+ 檢查發生錯誤: {e}")
+
+    try:
+        check_pia(now, send_test=send_test)
+    except Exception as e:
+        print(f"⚠️ Pia 檢查發生錯誤: {e}")
+
+    try:
+        check_lawson(now, send_test=send_test)
+    except Exception as e:
+        print(f"⚠️ Lawson 檢查發生錯誤: {e}")
 
 
 if __name__ == "__main__":
     is_manual_test = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    check_once(send_test=is_manual_test)
+    check_all(send_test=is_manual_test)
