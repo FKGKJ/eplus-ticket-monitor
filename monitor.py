@@ -12,6 +12,7 @@ JST = timezone(timedelta(hours=8))
 
 # 售票網址設定
 EPLUS_DETAIL_URL = "https://eplus.jp/sf/detail/1682650001-P0030148P0030149P0030150P0030151P0030152P0030153P0030154P0030155P0030156P0030157P0030158P0030159P0030160P0030161P0030162P0030163P0030164?P1=0402&P59=1&P6=001&block=true"
+EPLUS_DIRECT_DAY_URL = "https://atom.eplus.jp/sys/main.jsp?prm=U=82:P2=168265:P5=0001:P3=0156:P21=001:P7=2:P6=001:P1=0402:P0=GGWC01:P55=//eplus.jp%2Fsf%2Fdetail%2F1682650001-P0030148P0030149P0030150P0030151P0030152P0030153P0030154P0030155P0030156P0030157P0030158P0030159P0030160P0030161P0030162P0030163P0030164%3FP1%2a0402%26P59%2a1%26P6%2a001%26block%2atrue"
 EPLUS_DIRECT_NIGHT_URL = "https://atom.eplus.jp/sys/main.jsp?prm=U=82:P2=168265:P5=0001:P3=0156:P21=002:P7=1:P6=001:P1=0402:P0=GGWC01:P55=//eplus.jp%2Fsf%2Fdetail%2F1682650001-P0030148P0030149P0030150P0030151P0030152P0030153P0030154P0030155P0030156P0030157P0030158P0030159P0030160P0030161P0030162P0030163P0030164%3FP1%2a0402%26P59%2a1%26P6%2a001%26block%2atrue"
 
 PIA_BUNDLE_URL = "https://t.pia.jp/pia/event/event.do?eventBundleCd=b2671107"
@@ -102,8 +103,8 @@ def check_eplus(now: str, send_test: bool = False) -> None:
         r'<article class="block-ticket-article.*?</article>', text, re.S
     )
 
-    print(f"[{now}] [1/3] E+ 檢查結果 (2026 夏川椎菜):")
-    night_available_lines = []
+    print(f"[{now}] [1/3] E+ 檢查結果 (2026 夏川椎菜 午場+夜場):")
+    available_lines = []
     all_lines = []
 
     for art in articles:
@@ -127,33 +128,35 @@ def check_eplus(now: str, send_test: bool = False) -> None:
             title_m.group(1).strip().replace("\xa0", " ") if title_m else ""
         )
 
-        line = f"P3=0156:P21={p21}: {date_str} {time_str} | {title_str} -> 【{status_str}】"
+        label = "午場(16:30)" if ("16:30" in time_str or p21 == "001") else "夜場(19:30)"
+        line = f"{label} [P21={p21}]: {date_str} {time_str} | {title_str} -> 【{status_str}】"
         print(f"  - {line}")
         all_lines.append(line)
 
-        is_night = ("19:30" in time_str) or (p21 == "002")
-        if is_night and ("受付中" in status_str or "予定枚数終了" not in status_str):
-            night_available_lines.append(line)
+        # 午場 (16:30) 與 夜場 (19:30) 只要任一場有票都通知
+        if "受付中" in status_str or "予定枚数終了" not in status_str:
+            available_lines.append(line)
 
-    if night_available_lines:
-        joined_avail = "\n".join(f"• {l}" for l in night_available_lines)
+    if available_lines:
+        joined_avail = "\n".join(f"• {l}" for l in available_lines)
         joined_all = "\n".join(f"• {l}" for l in all_lines)
         msg = (
-            f"🚨 **【E+ 夜場 (19:30 LIVE) 釋票通知！】** @everyone\n"
-            f"您監控的 **2026 夏川椎菜 19:30 夜公演** 狀態已變更（不再是予定枚数終了）！\n\n"
-            f"✅ **可購買夜場**：\n{joined_avail}\n\n"
+            f"🚨 **【E+ 釋票通知（午場／夜場）！】** @everyone\n"
+            f"您監控的 **2026 夏川椎菜（12/17）** 有場次釋出票券！\n\n"
+            f"✅ **目前可購買場次**：\n{joined_avail}\n\n"
             f"📋 **當日兩場完整狀態**：\n{joined_all}\n"
             f"🕒 **檢查時間**：{now}\n"
-            f"👉 **直接進 19:30 選張數頁面**：{EPLUS_DIRECT_NIGHT_URL}\n"
+            f"👉 **直接進 19:30 夜場選張數**：{EPLUS_DIRECT_NIGHT_URL}\n"
+            f"👉 **直接進 16:30 午場選張數**：{EPLUS_DIRECT_DAY_URL}\n"
             f"🔗 **E+ 列表頁**：{EPLUS_DETAIL_URL}"
         )
         send_discord(WEBHOOK_EPLUS, "E+ 雲端監票小幫手", msg)
     elif send_test:
         joined_all = "\n".join(f"• {l}" for l in all_lines)
         test_msg = (
-            f"☁️ **【GitHub Actions 雲端監票啟動測試成功 (E+)！】**\n"
+            f"☁️ **【GitHub Actions 雲端監票啟動測試成功 (E+ 午場+夜場)！】**\n"
             f"🕒 **檢查時間**：{now}\n"
-            f"📋 **目前最新票況（已設定僅針對 19:30 夜場發警報）**：\n{joined_all}\n"
+            f"📋 **目前最新票況（16:30 午場與 19:30 夜場皆會發警報）**：\n{joined_all}\n"
             f"🔗 **售票頁面**：{EPLUS_DETAIL_URL}"
         )
         send_discord(WEBHOOK_EPLUS, "E+ 雲端監票小幫手", test_msg)
