@@ -273,5 +273,8 @@ def check_all(send_test: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    is_manual_test = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    is_manual_test = os.environ.get("GITHUB_EVENT_NAME") in (
+        "workflow_dispatch",
+        "push",
+    )
     check_all(send_test=is_manual_test)

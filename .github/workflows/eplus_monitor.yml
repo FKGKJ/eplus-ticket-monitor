@@ -1,6 +1,9 @@
 name: E+ Ticket Monitor
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # 每 5 分鐘在 GitHub 雲端自動執行一次
     - cron: '*/5 * * * *'
